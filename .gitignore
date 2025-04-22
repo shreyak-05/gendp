@@ -2,7 +2,11 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+cat > .gitignore << EOL
+# Data files
+*.hdf5
+dataset_*/
+dataset*
 # C extensions
 *.so
 
