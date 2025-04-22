@@ -55,6 +55,22 @@ def task_to_cfg(task, manip_obj=None):
                 '_target_': 'sapien_env.teleop.hang_mug_scripted_policy.SingleArmPolicy',
             }
         )
+    elif task == 'hang_mug_ur3e':
+        cfg = OmegaConf.create(
+            {
+                '_target_': 'sapien_env.rl_env.hang_mug_env.HangMugRLEnv',
+                'use_gui': True,
+                'robot_name': 'ur3e',
+                'frame_skip': 10,
+                'use_visual_obs': False,
+                'manip_obj': 'nescafe_mug' if manip_obj is None else manip_obj,
+            }
+        )
+        policy_cfg = OmegaConf.create(
+            {
+                '_target_': 'sapien_env.teleop.hang_mug_scripted_policy.SingleArmPolicy',
+            }
+        )
     elif task == 'mug_collect':
         cfg = OmegaConf.create(
             {
@@ -92,13 +108,15 @@ def task_to_cfg(task, manip_obj=None):
         raise ValueError(f'Unknown task {task}')
     return cfg, policy_cfg
 
+
 def main_env(episode_idx, dataset_dir, headless, mode, task_name, manip_obj=None):
     # initialize env
     os.system(f'mkdir -p {dataset_dir}')
-    kin_helper = KinHelper(robot_name="panda")
-
+    # Extract robot_name from the config to use with KinHelper
     cfg, policy_cfg = task_to_cfg(task_name, manip_obj=manip_obj)
     
+    robot_name = cfg.robot_name
+    kin_helper = KinHelper(robot_name=robot_name)
     with open(os.path.join(dataset_dir, 'config.yaml'), 'w') as f:
         OmegaConf.save(cfg, f.name)
 
@@ -106,6 +124,7 @@ def main_env(episode_idx, dataset_dir, headless, mode, task_name, manip_obj=None
     env : BaseRLEnv = hydra.utils.instantiate(cfg)
     env.seed(episode_idx)
     env.reset()
+
     arm_dof = env.arm_dof
     
     # Setup viewer and camera
@@ -117,8 +136,8 @@ def main_env(episode_idx, dataset_dir, headless, mode, task_name, manip_obj=None
         else:
             gui.create_camera(**params)
     if not gui.headless:
-        gui.viewer.set_camera_rpy(r=0, p=-0.5, y=np.pi/2)
-        gui.viewer.set_camera_xyz(x=0, y=0.5, z=0.5)
+            gui.viewer.set_camera_rpy(r=0, p=-0.5, y=np.pi/2)
+            gui.viewer.set_camera_xyz(x=0.0, y=0.5, z=0.5)
     scene = env.scene
     scene.step()
     
@@ -188,8 +207,9 @@ def main_env(episode_idx, dataset_dir, headless, mode, task_name, manip_obj=None
         cartisen_action_in_rob = transform_action_from_world_to_robot(cartisen_action,env.robot.get_pose())
         action[:arm_dof] = kin_helper.compute_ik_sapien(env.robot.get_qpos()[:],cartisen_action_in_rob)[:arm_dof]
         action[arm_dof:] = cartisen_action_in_rob[6]
-        # print(action)
+        print(f"action: {action}")
         obs, reward, done, _ = env.step(action[:arm_dof+1])
+        
         rgbs, depths = gui.render(depth=True)
         
         data_dict['observations']['joint_pos'].append(env.robot.get_qpos()[:-1])

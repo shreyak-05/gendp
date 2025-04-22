@@ -12,7 +12,7 @@ from sapien.utils import Viewer
 from sapien_env.rl_env.base import BaseRLEnv
 from sapien_env.sim_env.hang_mug_env import HangMugEnv
 from sapien_env.rl_env.para import ARM_INIT
-from sapien_env.utils.common_robot_utils import generate_free_robot_hand_info, generate_arm_robot_hand_info, generate_panda_info
+from sapien_env.utils.common_robot_utils import generate_free_robot_hand_info, generate_arm_robot_hand_info, generate_panda_info,generate_ur3e_info
 
 
 class HangMugRLEnv(HangMugEnv, BaseRLEnv):
@@ -23,7 +23,7 @@ class HangMugRLEnv(HangMugEnv, BaseRLEnv):
 
         self.constant_object_state = constant_object_state
         self.object_pose_noise = object_pose_noise
-
+        info = None  # Initialize info to avoid UnboundLocalError
         # Parse link name
         if self.is_robot_free:
             info = generate_free_robot_hand_info()[robot_name]
@@ -31,16 +31,37 @@ class HangMugRLEnv(HangMugEnv, BaseRLEnv):
             info = generate_arm_robot_hand_info()[robot_name]
         elif self.is_panda:
             info = generate_panda_info()[robot_name]
+        elif self.is_ur3e:  # Add UR3e case
+            info = generate_ur3e_info()[robot_name]
         else:
             raise NotImplementedError
+        self.robot_info = info
+        self.arm_dof = info.arm_dof
+        self.hand_dof = info.hand_dof
         self.palm_link_name = info.palm_name
         self.palm_link = [link for link in self.robot.get_links() if link.get_name() == self.palm_link_name][0]
         
-        # Finger tip: thumb, index, middle, ring
-        finger_tip_names = ["panda_leftfinger", "panda_rightfinger"]
+        if self.is_panda:
+            finger_tip_names = ["panda_leftfinger", "panda_rightfinger"]
+        elif self.is_ur3e:  # Define finger tips for UR3e with robotiq gripper
+            finger_tip_names = ["robotiq_rightfinger", "robotiq_leftfinger"]
+        else:
+            finger_tip_names = []
         
         robot_link_names = [link.get_name() for link in self.robot.get_links()]
-        self.finger_tip_links = [self.robot.get_links()[robot_link_names.index(name)] for name in finger_tip_names]
+         # Print link names for debugging
+        if self.is_ur3e:
+            print(f"Available links in UR3e robot: {robot_link_names}")
+        
+        # Make finger tip finding more robust
+        self.finger_tip_links = []
+        for name in finger_tip_names:
+            try:
+                if name in robot_link_names:
+                    self.finger_tip_links.append(self.robot.get_links()[robot_link_names.index(name)])
+            except ValueError:
+                print(f"Warning: Finger tip link '{name}' not found in robot links")
+        #self.finger_tip_links = [self.robot.get_links()[robot_link_names.index(name)] for name in finger_tip_names]
 
         # Object init pose
         self.object_episode_init_pose = sapien.Pose()
@@ -106,6 +127,13 @@ class HangMugRLEnv(HangMugEnv, BaseRLEnv):
             init_pos = np.array([0.0, -0.5, 0.0])
             init_ori = transforms3d.euler.euler2quat(0, 0, np.pi / 2)
             init_pose = sapien.Pose(init_pos, init_ori)
+        elif self.is_ur3e:
+            qpos = self.robot_info.arm_init_qpos.copy()
+            self.robot.set_qpos(qpos)
+            self.robot.set_drive_target(qpos)
+            init_pos = np.array([0.0, -0.5, 0.0])
+            init_ori = transforms3d.euler.euler2quat(0, 0, np.pi / 2)
+            init_pose = sapien.Pose(init_pos, init_ori)
         else:
             init_pose = sapien.Pose(np.array([-0.4, 0, 0.2]), transforms3d.euler.euler2quat(0, np.pi / 2, 0))
         self.robot.set_pose(init_pose)
@@ -142,9 +170,9 @@ class HangMugRLEnv(HangMugEnv, BaseRLEnv):
 
 
 def main_env():
-    env = HangMugRLEnv(use_gui=True, robot_name="panda", frame_skip=10, use_visual_obs=False)
+    env = HangMugRLEnv(use_gui=True, robot_name="ur3e", frame_skip=10, use_visual_obs=False)
     base_env = env
-    robot_dof = env.arm_dof + 1
+    robot_dof = env.arm_dof
     env.seed(0)
     env.reset()
     viewer = Viewer(base_env.renderer)

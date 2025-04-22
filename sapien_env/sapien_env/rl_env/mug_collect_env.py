@@ -104,6 +104,13 @@ class MugCollectRLEnv(MugCollectEnv, BaseRLEnv):
             init_pos = np.array([0.0, -0.5, 0.0])
             init_ori = transforms3d.euler.euler2quat(0, 0, np.pi / 2)
             init_pose = sapien.Pose(init_pos, init_ori)
+        elif self.is_ur3e:
+            qpos = self.robot_info.arm_init_qpos.copy()
+            self.robot.set_qpos(qpos)
+            self.robot.set_drive_target(qpos)
+            init_pos = np.array([0.0, -0.5, 0.0])
+            init_ori = transforms3d.euler.euler2quat(0, 0, np.pi / 2)
+            init_pose = sapien.Pose(init_pos, init_ori)
         else:
             init_pose = sapien.Pose(np.array([-0.4, 0, 0.2]), transforms3d.euler.euler2quat(0, np.pi / 2, 0))
         self.robot.set_pose(init_pose)

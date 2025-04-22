@@ -33,6 +33,12 @@ class KinHelper():
         elif "panda" in robot_name:
             urdf_path = f"{package_dir}/robot/panda/panda.urdf"
             self.eef_name = 'panda_hand'
+        elif "ur3e" in robot_name:
+            urdf_path = f"{package_dir}/robot/ur_description/ur3e.urdf"
+            self.eef_name = 'robotiq_hande'  # Use the gripper base as end-effector
+            self.has_gripper = True
+            self.finger_joint_name = 'finger_joint1'  # The control joint for the gripper
+            self.finger_names = ['robotiq_leftfinger', 'robotiq_rightfinger']  # For visualization
         self.robot_name = robot_name
         # with suppress_stdout(): # suppress pybullet annoying print
         #     self.bullet_robot = p.loadURDF(urdf_path, useFixedBase=True)
@@ -152,6 +158,11 @@ class KinHelper():
         fk = self.robot_model.compute_forward_kinematics(qpos)
         if link_names is None:
             link_names = self.meshes.keys()
+             # For UR3e with gripper, ensure fingers are included
+            if 'ur3e' in self.robot_name and hasattr(self, 'has_gripper') and self.has_gripper:
+                if self.finger_names[0] not in link_names and self.finger_names[0] in self.meshes:
+                    link_names = list(link_names) + self.finger_names
+        
         if num_pts is None:
             num_pts = [500] * len(link_names)
         link_idx_ls = []
@@ -295,6 +306,10 @@ class KinHelper():
             active_qmask= np.array([True,True,True,True,True,True,False,False])
         elif 'panda' in self.robot_name:
             active_qmask= np.array([True,True,True,True,True,True,True,True,True])
+        elif 'ur3e' in self.robot_name:
+        # UR3e has 6 active joints for the arm
+            active_qmask = np.array([True, True, True, True, True, True,True, True])
+           
         qpos = self.robot_model.compute_inverse_kinematics(link_index=self.sapien_eef_idx, pose=pose, initial_qpos=initial_qpos,active_qmask=active_qmask, eps=1e-3, damp=1e-1)
         # verify ik
         fk_pose = self.compute_fk_sapien_links(qpos[0], [self.sapien_eef_idx])[0]

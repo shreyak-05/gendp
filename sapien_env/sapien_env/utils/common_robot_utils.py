@@ -18,6 +18,7 @@ class ArmRobotInfo(NamedTuple):
     palm_name: str
     arm_init_qpos: List[float]
     root_offset: List[float] = [0.0, 0.0, 0.0]
+    hand_init_qpos: List[float] = None 
 
 
 
@@ -104,6 +105,20 @@ def generate_panda_info() -> Dict[str, ArmRobotInfo]:
     )
     return info_dict
 
+# Add the following function after the generate_panda_info() function
+
+def generate_ur3e_info() -> Dict[str, ArmRobotInfo]:
+    ur3e = ArmRobotInfo(
+        path="robot/ur_description/ur3e.urdf",
+        hand_dof=2, arm_dof=6, palm_name="robotiq_hande",
+        arm_init_qpos=[0.0, -1.0, 1.0, -2.0, -1.57, 0.0, 0.0, 0.0],
+        root_offset=[0.00, 0, 0])
+
+    info_dict = dict(
+        ur3e=ur3e
+    )
+    return info_dict
+
 def generate_retargeting_link_names(robot_name):
     if "shadow_hand" in robot_name or "adroit_hand" in robot_name:
         link_names = ["palm", "thtip", "fftip", "mftip", "rftip", "lftip"]
@@ -165,6 +180,26 @@ def load_robot(scene: sapien.Scene, robot_name, disable_self_collision=True) -> 
                 },
             }
         }
+    elif "ur3e" in robot_name:
+        info = generate_ur3e_info()[robot_name]
+        config = {
+            "link": {
+                "robotiq_leftfinger": {
+                    "material": scene.create_physical_material(
+                        **dict(
+                            static_friction=1000, dynamic_friction=1000, restitution=0
+                        )
+                    )
+                },
+                "robotiq_rightfinger": {
+                    "material": scene.create_physical_material(
+                        **dict(
+                            static_friction=1000, dynamic_friction=1000, restitution=0
+                        )
+                    )
+                },
+            }
+        }
     robot_file = info.path
     filename = str(package_dir / robot_file)
     robot_builder = loader.load_file_as_articulation_builder(filename, config=config)
@@ -212,6 +247,15 @@ def load_robot(scene: sapien.Scene, robot_name, disable_self_collision=True) -> 
             else:
                 joint.set_drive_property(*(3 * finger_control_params), mode="force")
 
+    elif "ur3e" in robot_name:
+            arm_joint_names = [f"joint{i}" for i in range(1, 8)]
+            for joint in robot.get_active_joints():
+                name = joint.get_name()
+                if name in arm_joint_names:
+                    joint.set_drive_property(*(1 * robot_arm_control_params), mode="force")
+                else:
+                    # For gripper joints
+                    joint.set_drive_property(*(3 * finger_control_params), mode="force")
     elif "trossen" in robot_name:
         # arm_joint_names = [f"joint{i}" for i in range(0, 6)]
         # print(robot.get_active_joints())

@@ -87,9 +87,13 @@ class BaseRLEnv(BaseSimulationEnv, gym.Env):
     def obs_dim(self):
         return 0
 
-    @property
+    @cached_property
     def action_dim(self):
-        return self.robot.dof
+        # for UR3e we only want arm_dof + hand_dof, not the raw robot.dof (which includes the mimic)
+        if hasattr(self, "is_ur3e") and self.is_ur3e:
+            return self.arm_dof + self.robot_info.hand_dof
+        else:
+            return self.robot.dof
 
     @property
     @abstractmethod
@@ -102,8 +106,10 @@ class BaseRLEnv(BaseSimulationEnv, gym.Env):
         self.robot.set_pose(sapien.Pose(np.array([0, 0, -5])))
         self.is_robot_free = "free" in robot_name
         self.is_trossen_arm = "trossen" in robot_name
+        self.is_ur3e = "ur3e" in robot_name
         self.is_xarm= "xarm" in robot_name
         self.is_panda = "panda" in robot_name
+        info = None
         if self.is_robot_free:
             info = generate_free_robot_hand_info()[robot_name]
             velocity_limit = np.array([1.0] * 3 + [1.57] * 3 + [3.14] * (self.robot.dof - 6))
@@ -144,7 +150,21 @@ class BaseRLEnv(BaseSimulationEnv, gym.Env):
             self.kinematic_model = PartialKinematicModel(self.robot, start_joint_name, end_joint_name)
             self.ee_link_name = self.kinematic_model.end_link_name
             self.ee_link = [link for link in self.robot.get_links() if link.get_name() == self.ee_link_name][0]
-        
+        elif self.is_ur3e:  # Add this condition
+            # Import needed for ur3e
+            from sapien_env.utils.common_robot_utils import generate_ur3e_info
+            info     = generate_ur3e_info()[robot_name]
+            self.arm_dof  = info.arm_dof           # 6
+            hand_dof      = info.hand_dof          # 1
+            vel = np.array([1]*6 + [np.pi]*hand_dof)
+            self.velocity_limit = np.stack([-vel, vel], axis=1)  # shape (7,2)
+            start_joint_name = self.robot.get_joints()[1].get_name()
+            end_joint_name = self.robot.get_active_joints()[self.arm_dof - 1].get_name()
+            self.kinematic_model = PartialKinematicModel(self.robot, start_joint_name, end_joint_name)
+            self.ee_link_name = self.kinematic_model.end_link_name
+            self.ee_link = [link for link in self.robot.get_links() if link.get_name() == self.ee_link_name][0]
+        else:
+            raise ValueError(f"Unknown robot type: {robot_name}")
         self.robot_info = info
         self.robot_collision_links = [link for link in self.robot.get_links() if len(link.get_collision_shapes()) > 0]
         self.control_time_step = self.scene.get_timestep() * self.frame_skip
@@ -159,6 +179,8 @@ class BaseRLEnv(BaseSimulationEnv, gym.Env):
             self.rl_step = self.trossen_sim_step
         elif "panda" in robot_name:
             self.rl_step = self.panda_sim_step
+        elif "ur3e" in robot_name:  # Add this condition
+            self.rl_step = self.ur3e_sim_step  # We'll add this method
 
         # Scene light and obs
         if self.use_visual_obs:
@@ -238,8 +260,18 @@ class BaseRLEnv(BaseSimulationEnv, gym.Env):
             self.robot.set_qf(self.robot.compute_passive_force(external=False, coriolis_and_centrifugal=False))
             self.scene.step()
         self.current_step += 1
+        
+    def ur3e_sim_step(self, action: np.ndarray):
+        gripper_action = action[self.arm_dof:]
+        gripper_action=np.clip(gripper_action, -0.01, 0.025)  
+        target_qpos = np.concatenate([action[0:self.arm_dof],gripper_action,gripper_action])
+        self.robot.set_drive_target(target_qpos)
+        for i in range(self.frame_skip):
+            self.robot.set_qf(self.robot.compute_passive_force(external=False, coriolis_and_centrifugal=False))
+            self.scene.step()
+        self.current_step += 1
 
-
+        
     def arm_kinematic_step(self, action: np.ndarray):
         """
         This function run the action in kinematics level without simulating the dynamics. It is mainly used for debug.

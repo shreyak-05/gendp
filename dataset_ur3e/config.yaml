@@ -1,0 +1,6 @@
+_target_: sapien_env.rl_env.hang_mug_env.HangMugRLEnv
+use_gui: true
+robot_name: ur3e
+frame_skip: 10
+use_visual_obs: false
+manip_obj: nescafe_mug
